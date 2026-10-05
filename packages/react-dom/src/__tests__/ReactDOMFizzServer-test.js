@@ -498,6 +498,61 @@ describe('ReactDOMFizzServer', () => {
   });
 
   // @gate enableBrowserAPI
+  it('does not remount the fallback when browser-only content suspends during hydration', async () => {
+    let resolveBrowserText;
+    const browserText = new Promise(resolve => {
+      resolveBrowserText = resolve;
+    });
+    const browserOnly = ReactDOM.browser(
+      () => 'Only render this content in a browser',
+    );
+
+    function Fallback() {
+      return <span>Fallback</span>;
+    }
+
+    function BrowserOnly() {
+      use(browserOnly);
+      const text = use(browserText);
+      return <span>{text}</span>;
+    }
+
+    function App() {
+      return (
+        <Suspense fallback={<Fallback />}>
+          <BrowserOnly />
+        </Suspense>
+      );
+    }
+
+    await act(() => {
+      const {pipe} = renderToPipeableStream(<App />, {
+        onError() {},
+      });
+      pipe(writable);
+    });
+
+    const fallback = container.querySelector('span');
+
+    expect(fallback).not.toBe(null);
+    expect(fallback.textContent).toBe('Fallback');
+
+    ReactDOMClient.hydrateRoot(container, <App />);
+    await waitForAll([]);
+
+    expect(fallback.isConnected).toBe(true);
+    const currentFallback = container.querySelector('span');
+    expect(currentFallback).toBe(fallback);
+    expect(currentFallback.textContent).toBe('Fallback');
+
+    await clientAct(() => {
+      resolveBrowserText('Browser');
+    });
+
+    expect(getVisibleChildren(container)).toEqual(<span>Browser</span>);
+  });
+
+  // @gate enableBrowserAPI
   it('can opt a component into browser-only rendering after streaming the fallback', async () => {
     let resolveServerReady;
     const serverReady = new Promise(resolve => {
